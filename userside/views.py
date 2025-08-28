@@ -219,8 +219,7 @@ class LoginView(APIView):
 class UserRefreshTokenView(APIView):
 
     authentication_classes = [RefreshTokenAuth] 
-    permission_classes = [IsAuthenticated]
-
+    permission_classes = [permissions.AllowAny]
     def post(self, request):
         refresh_token = request.auth            
         new_access   = refresh_token.access_token

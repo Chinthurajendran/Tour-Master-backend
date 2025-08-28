@@ -1,34 +1,43 @@
-# auth_backends.py
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework import exceptions, status
-from rest_framework.permissions import BasePermission
+from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
 
 class _BaseTokenAuth(JWTAuthentication):
-    """
-    Shared logic: read header, validate token, check user role.
-    Sub‑classes decide whether ACCESS or REFRESH is allowed.
-    """
+    allow_refresh_token = False
+    allow_access_token  = True
 
-    allow_refresh_token = False          # overridden below
-    allow_access_token  = True           # overridden below
+    def get_validated_token(self, raw_token):
+        """
+        Force SimpleJWT to validate against RefreshToken or AccessToken
+        depending on subclass settings.
+        """
+        try:
+            if self.allow_access_token and not self.allow_refresh_token:
+                return AccessToken(raw_token)   # ✅ only access allowed
+            elif self.allow_refresh_token and not self.allow_access_token:
+                return RefreshToken(raw_token)  # ✅ only refresh allowed
+            else:
+                # fallback: try both
+                try:
+                    return AccessToken(raw_token)
+                except Exception:
+                    return RefreshToken(raw_token)
+        except Exception as e:
+            raise InvalidToken(f"Token validation failed: {str(e)}")
 
     def _token_kind_ok(self, validated_token):
         token_type = validated_token.get("token_type")
-        if token_type == "access" and self.allow_access_token:
-            return True
-        if token_type == "refresh" and self.allow_refresh_token:
-            return True
-        return False
+        return (
+            (token_type == "access" and self.allow_access_token) or
+            (token_type == "refresh" and self.allow_refresh_token)
+        )
 
     def authenticate(self, request):
-        """
-        Returns (user, token) on success, raises AuthenticationFailed otherwise.
-        """
         header = self.get_header(request)
         if header is None:
-            return None                   # let other auth backends try
+            return None
 
         raw_token = self.get_raw_token(header)
         if raw_token is None:
@@ -42,39 +51,23 @@ class _BaseTokenAuth(JWTAuthentication):
                 code=status.HTTP_401_UNAUTHORIZED,
             )
 
-        # ── Access vs Refresh check ─────────────────────────────
         if not self._token_kind_ok(validated_token):
             msg = (
                 "Please provide a refresh token"
                 if validated_token.get("token_type") == "access"
                 else "Please provide an access token"
             )
-            raise exceptions.AuthenticationFailed(
-                detail=msg,
-                code=status.HTTP_403_FORBIDDEN,
-            )
-
-        # ── Role check (inside payload) ─────────────────────────
-        # user_role = validated_token.get("user", {}).get("user_role")
-        # if user_role != "user":
-        #     raise exceptions.PermissionDenied(
-        #         detail="Access denied! Only users are allowed.",
-        #         code=status.HTTP_403_FORBIDDEN,
-        #     )
-
-        # Optionally: JTI blacklist test goes here…
+            raise exceptions.AuthenticationFailed(detail=msg, code=status.HTTP_403_FORBIDDEN)
 
         user = self.get_user(validated_token)
         return (user, validated_token)
 
 
 class AccessTokenAuth(_BaseTokenAuth):
-    """Accept **access** tokens only (like your AccessTokenBearer)."""
     allow_refresh_token = False
     allow_access_token  = True
 
 
 class RefreshTokenAuth(_BaseTokenAuth):
-    """Accept **refresh** tokens only (like your RefreshTokenBearer)."""
     allow_refresh_token = True
     allow_access_token  = False

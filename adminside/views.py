@@ -50,10 +50,20 @@ class Fetchbanner(APIView):
 
 class BannerUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    # This tells DRF how to read request.data.
+    # MultiPartParser → handles multipart form-data (used for file uploads).
+    # FormParser → handles normal form submissions.
+    # This is needed because banners often include images.
     parser_classes = (MultiPartParser, FormParser)
 
     def put(self, request, pk):
+        # is a shortcut helper from Django.
+        # Fetches the banner from the database.
+        # If the banner doesn’t exist → 404 Not Found
         banner = get_object_or_404(Banner, pk=pk)
+        # With partial=True
+        # You can send only the fields you want to change.
+        # Missing fields will keep their existing values in the database.
         serializer = BannerSerializer(banner, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -120,9 +130,12 @@ class TourPackageView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        photos = request.FILES.getlist('photos')
-        print("Request data:", request.data)
-
+        # context is an optional dictionary you can pass to the serializer.
+        # It’s available inside the serializer via self.context.
+        # Why pass the request?
+        # Useful if your serializer needs request-specific info.
+        # Example: Building full image URLs (request.build_absolute_uri()), or accessing request.user.
+        # Some DRF features (like HyperlinkedModelSerializer) require the request in the context to generate proper hyperlinks.
         serializer = TourPackageSerializer(data=request.data,context={'request': request})
         if serializer.is_valid():
             serializer.save()
@@ -203,6 +216,13 @@ class PackageSchedulesAdd(APIView):
 
 
             return Response({"message": "Package schedule saved successfully"}, status=status.HTTP_201_CREATED)
+        
+
+        # DRF already automatically parses the raw JSON request body into request.data before your view runs.
+        # That means request.data is already a Python dict, so you’re skipping the serializer and just:
+        # Extracting values manually with .get()
+        # Manually creating model objects with .objects.create()
+        # The only place you manually do JSON parsing is here:
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
